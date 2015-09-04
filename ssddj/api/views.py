@@ -52,6 +52,7 @@ from .viewhelper import MakeTarget
 from .viewhelper import UserStats
 from .viewhelper import TargetPortal
 from .viewhelper import ChangeInitiatorHelper
+from .viewhelper import ChangeTargetHelper
 from utils.configreader import ConfigReader
 
 def ValuesQuerySetToDict(vqs):
@@ -130,6 +131,43 @@ class ChangeInitiator(APIView):
             return Response({'error':1, 'error_string':"Error reassigning initiator in request: " + str(request.DATA)}, status=status.HTTP_400_BAD_REQUEST)
         else:
             return Response({'error':0})
+
+
+class ChangeTarget(APIView):
+    """ 
+    CBV for changing the Target name. The process of changing the target name is as follows:
+    1. Verify that the "old target" actually exists
+    2. Verify change pin is correct.
+    3. Use the new service name and new initiator name to create the new target name
+    4. Rename the target on the SCST config file
+    5. Create a new Target record in the DB, populating most of it from the old target record
+    6. Point the LV, AAgroup, and Clumpgroup (which have Target as a foreign key) to the new Target record
+    7. Make an entry in TargetNameMap table about the change
+    8. Delete old target DB record
+    """
+    def __getstate__(self):
+        d = dict(self.__dict__)
+        del d['logger']
+        return d
+
+    def __setstate__(self, d):
+        self.__dict__.update(d)
+    authentication_classes = (SessionAuthentication, BasicAuthentication)
+    permission_classes = (IsAuthenticated,)
+    def get(self, request):
+        try:
+            logger = getLogger(__name__)
+            (rtnVal,rtnString) = ChangeTargetHelper(request.DATA,request.user)
+            if rtnVal < 0:
+                logger.error("Could not change target name.")
+                return Response({'error':1, 'error_string':"Error reassigning target name, details: %s" %(rtnString,)}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                storeip1 = str(Target.objects.get(iqntar=rtnString).storageip1)
+                return Response({'error':0,'iqntar':rtnString,'targethost__storageip1':storeip1})
+        except:
+            logger.error(format_exc)
+
+
 
 
 class ReturnStats(APIView):
@@ -255,6 +293,9 @@ class Provision(APIView):
                 return Response(rtnDict, status=status.HTTP_400_BAD_REQUEST)
             if (flag==0 or flag==1):
                 tar = Target.objects.filter(iqntar=statusStr)
+                if (tar[0].owner != request.user):
+                    return Response({'error':1,'detail':'Not authorized'},status=status.HTTP_401_UNAUTHORIZED)
+
                 #Check and update state on the Saturn node
                 config = ConfigReader()
                 numqueues = config.get('saturnring','numqueues')

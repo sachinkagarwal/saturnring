@@ -26,9 +26,11 @@ from ssdfrontend.models import Provisioner
 from ssdfrontend.models import AAGroup
 from ssdfrontend.models import ClumpGroup
 from ssdfrontend.models import TargetHistory
+from ssdfrontend.models import TargetNameMap
 from ssdfrontend.models import Interface
 from ssdfrontend.models import IPRange
 from ssdfrontend.models import Lock
+from ssdfrontend.models import GenerateRandomPin
 #from ssdfrontend.models import HostGroup
 from utils.targetops import DeleteTargetObject
 from globalstatemanager.gsm import PollServer
@@ -45,6 +47,7 @@ from django import db
 from logging import getLogger
 #admin.site.disable_action('delete_selected')
 
+#if 'delete_selected' in admin.site.actions:
 admin.site.disable_action('delete_selected')
 
 class VGAdmin(StatsAdmin):	
@@ -63,6 +66,14 @@ def config_snapshots(StatsAdmin,request,queryset):
         targetList.append(obj.iqntar)
     return redirect('snapbackup:snapconfig',targets=obj)
 #    return redirect('snapconfig')
+
+def set_identical_pin_for_all_selected_targets(StatsAdmin,request,queryset):
+    logger = logging.getLogger(__name__)
+    randompin = GenerateRandomPin()
+    for obj in queryset:
+        obj.pin = randompin
+        obj.save()
+
 
 def delete_selected_iscsi_targets(StatsAdmin,request,queryset):
     logger = logging.getLogger(__name__)
@@ -166,7 +177,7 @@ class TargetAdmin(StatsAdmin):
         self.__dict__.update(d)
 
     list_display = ['iqntar','iqnini','created_at','sizeinGB','isencrypted','aagroup','clumpgroup','rkbpm','wkbpm','sessionup','Physical_Location','owner']
-    actions = [delete_selected_iscsi_targets]
+    actions = [delete_selected_iscsi_targets,set_identical_pin_for_all_selected_targets]
     #actions = [delete_selected_iscsi_targets]
     search_fields = ['iqntar','iqnini','lv__lvname','lv__vg__vguuid','targethost__dnsname']
     stats = (Sum('sizeinGB'),)
@@ -315,11 +326,18 @@ class ClumpGroupAdmin(StatsAdmin):
 
 admin.site.register(ClumpGroup,ClumpGroupAdmin)
 
+class TargetNameMapAdmin(StatsAdmin):
+    readonly_fields = ['owner','oldtarname','newtarname','created_at','updated_at']
+    list_display = ['newtarname','oldtarname','owner','created_at','updated_at']
+
+    def has_add_permission(self, request):
+        return False
+
 #admin.site.register(Provisioner)
 admin.site.register(Target, TargetAdmin)
 admin.site.register(LV,LVAdmin)
 admin.site.register(IPRange)
-#admin.site.register(HostGroup)
+admin.site.register(TargetNameMap, TargetNameMapAdmin)
 
 class StorageHostForm(forms.ModelForm):
     class Meta:

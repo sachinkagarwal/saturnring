@@ -413,7 +413,7 @@ class PollServer():
         return 0
 
 
-    def DeleteTarget(self,iqntar,vguuid):
+    def DeleteTarget(self,iqntar,vguuid,lvolname):
         """
         Delete target
         """
@@ -427,7 +427,7 @@ class PollServer():
             logger.warn("Could not find deletion target in DB, exiting. "+iqntar)
             return -1
         if not tar.sessionup:
-            cmdStr = " ".join(["sudo",self.rembashpath,join(self.remoteinstallLoc,'saturn-bashscripts','removetarget.sh'),iqntar,vguuid])
+            cmdStr = " ".join(["sudo",self.rembashpath,join(self.remoteinstallLoc,'saturn-bashscripts','removetarget.sh'),iqntar,vguuid,lvolname])
             exStr = self.Exec(cmdStr)
             if exStr == -1:
                 return -1

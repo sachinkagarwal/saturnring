@@ -15,6 +15,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 import string
+from uuid import uuid4
 # Create your models here.
 from django.core.exceptions import ValidationError
 
@@ -23,6 +24,10 @@ def validate_nospecialcharacters(value):
     if len(invalidcharacters.intersection(value)):
         raise ValidationError(u'%s contains a special character, retry after removing it' % value)
 
+def GenerateRandomPin():
+    d = uuid4()
+    str = d.hex
+    return str[0:8]
 
 class Provisioner(models.Model):
     clientiqn = models.CharField(max_length=100)
@@ -102,9 +107,17 @@ class Target(models.Model):
     storageip1 = models.GenericIPAddressField(default='127.0.0.1')
     storageip2 = models.GenericIPAddressField(default='127.0.0.1')
     isencrypted = models.BooleanField(default=False)
+    pin = models.CharField(max_length=32,default=GenerateRandomPin)
 
     def __unicode__(self):              # __unicode__ on Python 2
         return self.iqntar
+
+class TargetNameMap(models.Model):
+    owner = models.ForeignKey(User)
+    oldtarname = models.CharField(max_length=200)
+    newtarname = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True,blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True,blank=True, null=True)
 
 
 class TargetHistory(models.Model):

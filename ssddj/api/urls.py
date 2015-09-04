@@ -25,6 +25,7 @@ urlpatterns = patterns('',
             url(r'^userstats/$',views.ReturnUserStats.as_view()),
             url(r'^targetportal/$',views.ReturnTargetPortal.as_view()),
             url(r'^changeinitiator/$',views.ChangeInitiator.as_view()),
+            url(r'^changetarget/$',views.ChangeTarget.as_view()),
                 )
 
 urlpatterns = format_suffix_patterns(urlpatterns)

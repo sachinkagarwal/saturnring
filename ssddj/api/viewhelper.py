@@ -23,12 +23,15 @@ from django_rq import get_queue
 from django.contrib.auth.models import User
 from operator import itemgetter
 from ssdfrontend.models import Target
+from ssdfrontend.models import TargetNameMap 
 from ssdfrontend.models import StorageHost
-from ssdfrontend.models import  VG
+from ssdfrontend.models import VG
 from ssdfrontend.models import LV
 from ssdfrontend.models import AAGroup
 from ssdfrontend.models import ClumpGroup
 from ssdfrontend.models import Lock
+from ssdfrontend.models import IPRange
+from ssdfrontend.models import Interface
 from django.db.models import Sum
 from django.db.models import Q
 from django.db.models import F
@@ -36,6 +39,8 @@ from utils.targetops import DeleteTargetObject
 from utils.scstconf import ParseSCSTConf
 from utils.targetops import ExecMakeTarget
 from utils.targetops import ExecChangeInitiator
+from utils.targetops import ExecChangeTarget
+from utils.targetops import GenerateTargetName
 from hashlib import sha1
 from traceback import format_exc
 from utils.configreader import ConfigReader
@@ -275,6 +280,63 @@ def ChangeInitiatorHelper(requestDic,owner):
         logger.info("...Working on changing target %s initiator name to %s" %(iqntar,newini))
         logger.info(str(job))
     return job.result
+
+
+def ChangeTargetHelper(requestDic,owner):
+    '''
+    Helper function to change the targetname
+
+    '''
+    logger = getLogger(__name__)
+    try:
+        rtnVal = -1
+        user = User.objects.get(username=owner);
+        oldtar = requestDic['iqntar']
+        newserviceName = requestDic['newserviceName']
+        newini = requestDic['newini']
+        target = Target.objects.get(iqntar=oldtar);
+
+        newtar = GenerateTargetName(newini,target.targethost,newserviceName)
+        if (Target.objects.filter(iqntar=newtar).count() != 0):
+            #New target name already exists
+            rtnVal = -2
+            raise Exception('The new target name %s already exists in the request %s' %(newtar,str(requestDic)))
+        challengepin = requestDic['pin']
+        if (challengepin != target.pin):
+            #Pin error
+            rtnVal = -3
+            raise Exception('Incorrect pin %s specified for target %s in request %s' %(challengepin,oldtar,str(requestDic)))
+        if 'portalrange' in requestDic:
+            iprange = requestDic['portalrange']
+            ipr = IPRange.objects.get(iprange=iprange)
+            if ((ipr.owner != user) and (ipr.owner != User.objects.get(username='admin'))):
+                rtnVal = -4
+                raise Exception("IPrange error, user %s specified ip range: %s belonging to %s" %(user.username,iprange,ipr.owner.username))
+            portal = str(Interface.objects.get(storagehost=target.targethost,iprange=ipr))
+        else:
+            portal = str(target.storageip1) #Default - if not specified, do not change
+    except:
+        logger.error(format_exc());
+        return (rtnVal,format_exc())
+    try:
+        config = ConfigReader()
+        numqueues = config.get('saturnring','numqueues')
+        queuename = 'queue'+str(hash(target.targethost)%int(numqueues))
+        queue = get_queue(queuename)
+        job = queue.enqueue(ExecChangeTarget,args=(oldtar,newtar,newini,portal,owner.username),timeout=45)
+        while ((job.result != 0)  and  (job.result != -1)):
+            sleep(1)
+            logger.info("...Working on changing target %s to %s " %(oldtar,newtar))
+        if job.result == -1:
+            logger.info(str(job))
+            return(-1,"ExecChangeTarget job returned -1, contact admin")
+    except:
+        errorString = format_exc()
+        logger.error(errorString)
+        return (-1, "ExecChangeTarget job may have timed out or thrown an error, contact admin")
+
+    return (job.result,newtar)
+
 
 
 def TargetPortal(requestDic):
