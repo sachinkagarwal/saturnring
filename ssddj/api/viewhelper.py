@@ -224,7 +224,7 @@ def MakeTarget(requestDic,owner):
         queue = get_queue(queuename)
         logger.info("Launching create target job into queue %s" %(queuename,) )
         storemedia = chosenVG.storemedia
-        job = queue.enqueue(ExecMakeTarget,args=(storemedia,targetvguuid,targetHost,clientiqn,serviceName,storageSize,aagroup,clumpgroup,subnet,owner.username,isencrypted,),timeout=45)
+        job = queue.enqueue(ExecMakeTarget,args=(storemedia,targetvguuid,targetHost,clientiqn,serviceName,storageSize,aagroup,clumpgroup,subnet,owner.username,isencrypted,),timeout=45,ttl=60)
         while 1:
             if job.result or job.is_failed:
                 chosenVG.is_locked = False
@@ -251,10 +251,11 @@ def UserStats(user):
         totalAlloc = Target.objects.filter(owner=user).aggregate(Sum('sizeinGB'))
         if not totalAlloc['sizeinGB__sum']:
             totalAlloc['sizeinGB__sum'] = 0.0
-        return (user.profile.max_alloc_sizeGB,totalAlloc['sizeinGB__sum'])
+        return (0,(user.profile.max_alloc_sizeGB,totalAlloc['sizeinGB__sum']))
     except:
+        errorstring = format_exc()
         logger.error(format_exc())
-        return -1
+        return (-1,format_exc())
 
 def ChangeInitiatorHelper(requestDic,owner):
     '''
@@ -267,19 +268,20 @@ def ChangeInitiatorHelper(requestDic,owner):
         newini = requestDic['newini']
         target = Target.objects.get(owner=user,iqntar=iqntar);
     except:
-        logger.error(format_exc());
-        return -1
+        errorstring = format_exc()
+        logger.error(errorstring)
+        return (-1,errorstring)
 
     config = ConfigReader()
     numqueues = config.get('saturnring','numqueues')
     queuename = 'queue'+str(hash(target.targethost)%int(numqueues))
     queue = get_queue(queuename)
-    job = queue.enqueue(ExecChangeInitiator,args=(iqntar,newini),timeout=45)
+    job = queue.enqueue(ExecChangeInitiator,args=(iqntar,newini),timeout=45,ttl=60)
     while (job.result != 0)  and (job.result != -1) :
         sleep(1)
         logger.info("...Working on changing target %s initiator name to %s" %(iqntar,newini))
-        logger.info(str(job))
-    return job.result
+        #logger.info(str(job))
+    return (job.result,str(job))
 
 
 def ChangeTargetHelper(requestDic,owner):
@@ -290,17 +292,24 @@ def ChangeTargetHelper(requestDic,owner):
     logger = getLogger(__name__)
     try:
         rtnVal = -1
-        user = User.objects.get(username=owner);
+        user = User.objects.get(username=owner)
         oldtar = requestDic['iqntar']
-        newserviceName = requestDic['newserviceName']
-        newini = requestDic['newini']
+        if 'newserviceName' not in requestDic:
+            newserviceName = 'useoldservicename'
+        else:
+            newserviceName = requestDic['newserviceName']
+        if 'newini' not in requestDic:
+            newini = Target.objects.get(iqntar=oldtar).iqnini
+        else:
+            newini = requestDic['newini']
+
         target = Target.objects.get(iqntar=oldtar);
 
         newtar = GenerateTargetName(newini,target.targethost,newserviceName)
         if (Target.objects.filter(iqntar=newtar).count() != 0):
             #New target name already exists
             rtnVal = -2
-            raise Exception('The new target name %s already exists in the request %s' %(newtar,str(requestDic)))
+            raise Exception('The new target name %s already exists: %s' %(newtar,str(requestDic)))
         challengepin = requestDic['pin']
         if (challengepin != target.pin):
             #Pin error
@@ -316,26 +325,27 @@ def ChangeTargetHelper(requestDic,owner):
         else:
             portal = str(target.storageip1) #Default - if not specified, do not change
     except:
-        logger.error(format_exc());
-        return (rtnVal,format_exc())
+        errorstring = format_exc()
+        logger.error(errorstring)
+        return (rtnVal,errorstring)
     try:
         config = ConfigReader()
         numqueues = config.get('saturnring','numqueues')
         queuename = 'queue'+str(hash(target.targethost)%int(numqueues))
         queue = get_queue(queuename)
-        job = queue.enqueue(ExecChangeTarget,args=(oldtar,newtar,newini,portal,owner.username),timeout=45)
+        job = queue.enqueue(ExecChangeTarget,args=(oldtar,newtar,newini,portal,owner.username),timeout=45,ttl=60)
         while ((job.result != 0)  and  (job.result != -1)):
             sleep(1)
             logger.info("...Working on changing target %s to %s " %(oldtar,newtar))
-        if job.result == -1:
-            logger.info(str(job))
-            return(-1,"ExecChangeTarget job returned -1, contact admin")
+        if job.result == 0:
+            return (0,newtar)
+        else:
+            raise Exception("ExecChangeTarget could not complete, contact admin: %s" %str(job))
     except:
         errorString = format_exc()
         logger.error(errorString)
-        return (-1, "ExecChangeTarget job may have timed out or thrown an error, contact admin")
+        return (-1, "ExecChangeTarget job may have timed out or thrown an error, contact admin: %s" % errorString)
 
-    return (job.result,newtar)
 
 
 
@@ -348,11 +358,16 @@ def TargetPortal(requestDic):
         if 'iqntar' not in requestDic:
             raise Exception("Target IQN needs to be specified")
 
-        targetobject = Target.objects.get(iqntar=requestDic['iqntar'])
-        return str(targetobject.storageip1)
+        try:
+            targetobject = Target.objects.get(iqntar=requestDic['iqntar'])
+        except:
+            raise Exception("Target IQN %s not found in Saturning database" % requestDic['iqntar'])
+        
+        return (0, str(targetobject.storageip1))
     except:
-        logger.error(format_exc())
-        return -1
+        errorstring = format_exc()
+        logger.error(errorstring)
+        return (-1,errorstring)
 
 def DeleteTarget(requestDic,owner):
     '''
@@ -390,7 +405,7 @@ def DeleteTarget(requestDic,owner):
         queuename = 'queue'+str(hash(obj.targethost)%int(numqueues))
         queue = get_queue(queuename)
         jobs = []
-        jobs.append( (queue.enqueue(DeleteTargetObject,args=(obj.iqntar,),timeout=45), obj.iqntar) )
+        jobs.append( (queue.enqueue(DeleteTargetObject,args=(obj.iqntar,),timeout=45,ttl=60), obj.iqntar) )
         logger.info("Using queue %s for deletion" %(queuename,))
     rtnStatus= {}
     rtnFlag=0

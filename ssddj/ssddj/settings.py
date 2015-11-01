@@ -31,6 +31,7 @@ import logging.handlers
 import traceback
 import django_auth_ldap
 import sys
+from django.contrib import messages
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -276,9 +277,15 @@ LOGGING = {
 
     }
 }
+MESSAGE_TAGS = {
+            messages.SUCCESS: 'alert-success success',
+            messages.WARNING: 'alert-warning warning',
+            messages.ERROR: 'alert-danger error'
+}
 
 
 from django.conf.global_settings import TEMPLATE_CONTEXT_PROCESSORS
 TEMPLATE_CONTEXT_PROCESSORS += (
          'django.core.context_processors.request',
+         'django.contrib.messages.context_processors.messages'
     )

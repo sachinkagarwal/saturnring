@@ -63,8 +63,8 @@ SIZE_GB=$(MB_to_GB "${SIZE}")
 DST_HOST=`get_destination_host $ID`
 
 
-if [ -z $MIGRATEFROM ]; then 
-if [-z $PORTALRANGE ]; then
+if [ -z "$MIGRATEFROM" ]; then 
+if [ -z "$PORTALRANGE" ]; then
 RTNSTR=$( . "$DRIVER_PATH/saturniscsi.conf"; curl -s -X GET "${SATURNRINGURL}/api/provisioner/" \
   -d "clientiqn=iqn.iscsihypervisor.$SATURNRINGUSER-$DSNAME-$DSID-$IMAGEID" \
   -d "serviceName=$SATURNRINGUSER-$DSNAME-$DSID-$IMAGEID" \
@@ -81,7 +81,7 @@ RTNSTR=$( . "$DRIVER_PATH/saturniscsi.conf"; curl -s -X GET "${SATURNRINGURL}/ap
   -u "$SATURNRINGUSER:$SATURNRINGPASSWORD" )
 fi
 else
-if [ -z $PORTALRANGE ]; then
+if [ -z "$PORTALRANGE" ]; then
 RTNSTR=$( . "$DRIVER_PATH/saturniscsi.conf"; curl -s -X GET "${SATURNRINGURL}/api/changetarget/" \
   -d "newini=iqn.iscsihypervisor.$SATURNRINGUSER-$DSNAME-$DSID-$IMAGEID" \
   -d "iqntar=$MIGRATEFROM" \

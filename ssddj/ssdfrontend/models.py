@@ -24,14 +24,22 @@ def validate_nospecialcharacters(value):
     if len(invalidcharacters.intersection(value)):
         raise ValidationError(u'%s contains a special character, retry after removing it' % value)
 
+def validate_sizeinGB(sizeinGB):
+    if sizeinGB < 1.0:
+        raise ValidationError("Require sizeinGB >= 1.0")
+
+def validate_clientiqn(clientiqn):
+    if not (clientiqn.startswith('iqn.')):# and clientiqn.endswith('.ini')):
+        raise ValidationError("clientiqn should be of the form iqn.*.ini")
+
 def GenerateRandomPin():
     d = uuid4()
     str = d.hex
     return str[0:8]
 
 class Provisioner(models.Model):
-    clientiqn = models.CharField(max_length=100)
-    sizeinGB = models.FloatField()
+    clientiqn = models.CharField(max_length=100,validators=[validate_clientiqn])
+    sizeinGB = models.FloatField(validators=[validate_sizeinGB])
     serviceName = models.CharField(max_length=100,validators=[validate_nospecialcharacters])
     def __unicode__(self):              # __unicode__ on Python 2
         return self.clientiqn

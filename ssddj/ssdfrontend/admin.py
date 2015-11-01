@@ -30,9 +30,7 @@ from ssdfrontend.models import TargetNameMap
 from ssdfrontend.models import Interface
 from ssdfrontend.models import IPRange
 from ssdfrontend.models import Lock
-from ssdfrontend.models import GenerateRandomPin
 #from ssdfrontend.models import HostGroup
-from utils.targetops import DeleteTargetObject
 from globalstatemanager.gsm import PollServer
 #admin.site.register(StorageHost)
 # Register your models here.
@@ -45,6 +43,13 @@ import os
 import ConfigParser
 from django import db
 from logging import getLogger
+
+from .adminhelper import delete_selected_iscsi_targets
+from .adminhelper import set_identical_pin_for_all_selected_targets
+from .adminhelper import config_snapshots
+from .adminhelper import ProfileForm
+from .adminhelper import download_selected_targets_to_CSV
+
 #admin.site.disable_action('delete_selected')
 
 #if 'delete_selected' in admin.site.actions:
@@ -58,68 +63,6 @@ class VGAdmin(StatsAdmin):
     def has_add_permission(self, request):
         return False
 admin.site.register(VG,VGAdmin)
-
-
-def config_snapshots(StatsAdmin,request,queryset):
-    targetList = []
-    for obj in queryset:
-        targetList.append(obj.iqntar)
-    return redirect('snapbackup:snapconfig',targets=obj)
-#    return redirect('snapconfig')
-
-def set_identical_pin_for_all_selected_targets(StatsAdmin,request,queryset):
-    logger = logging.getLogger(__name__)
-    randompin = GenerateRandomPin()
-    for obj in queryset:
-        obj.pin = randompin
-        obj.save()
-
-
-def delete_selected_iscsi_targets(StatsAdmin,request,queryset):
-    logger = logging.getLogger(__name__)
-    BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-    config = ConfigParser.RawConfigParser()
-    config.read(os.path.join(BASE_DIR,'saturn.ini'))
-    numqueues = config.get('saturnring','numqueues')
-    jobs =[]
-    for obj in queryset:
-        queuename = 'queue'+str(hash(obj.targethost)%int(numqueues))
-        queue = django_rq.get_queue(queuename)
-        jobs = []
-        jobs.append( (queue.enqueue(DeleteTargetObject,args=(obj.iqntar,),timeout=45), obj.iqntar) )
-        logger.info("Using queue %s for deletion" %(queuename,))
-    rtnStatus= {}
-    rtnFlag=0
-    numDone=0
-    timeCtr=0
-    while (numDone < len(jobs)) and (timeCtr < 120):
-        ii=0
-        timeCtr=timeCtr+1
-        time.sleep(0.5)
-        for ii in range(0,len(jobs)):
-            if jobs[ii] == 0:
-                continue
-            (job,target) = jobs[ii]
-            if (job.result == 0) or (job.result == 1):
-                if job.result==1:
-                    try:
-                        logger.error('Failed deletion of '+target)
-                        raise forms.ValidationError(
-                            ('Failed deletion target: %(target)'),
-                            code='invalid', 
-                            params={'values': 'Check if session is up'},
-                        )
-                    except:
-                        rtnStatus[target]="Error "+str(job.result)
-                rtnFlag=rtnFlag + job.result
-                jobs[ii]=0
-                numDone=numDone+1
-            else:
-                logger.info('...Working on deleting target '+target)
-                break
-    if timeCtr == 120:
-        logger.error("Gave up trying to delete after 1 minute")
-    return (rtnFlag,str(rtnStatus))
 
 class InterfaceAdmin(StatsAdmin):
     readonly_fields = ('storagehost','ip')
@@ -177,9 +120,9 @@ class TargetAdmin(StatsAdmin):
         self.__dict__.update(d)
 
     list_display = ['iqntar','iqnini','created_at','sizeinGB','isencrypted','aagroup','clumpgroup','rkbpm','wkbpm','sessionup','Physical_Location','owner']
-    actions = [delete_selected_iscsi_targets,set_identical_pin_for_all_selected_targets]
+    actions = [delete_selected_iscsi_targets,set_identical_pin_for_all_selected_targets,download_selected_targets_to_CSV]
     #actions = [delete_selected_iscsi_targets]
-    search_fields = ['iqntar','iqnini','lv__lvname','lv__vg__vguuid','targethost__dnsname']
+    search_fields = ['iqntar','iqnini','lv__lvname','lv__vg__vguuid','targethost__dnsname','aagroup__name','clumpgroup__name','owner__username']
     stats = (Sum('sizeinGB'),)
 
     def get_readonly_fields(self,request,obj=None):
@@ -190,6 +133,7 @@ class TargetAdmin(StatsAdmin):
 
     def has_add_permission(self, request):
         return False
+
     def Physical_Location(self,obj):
         mylv = LV.objects.get(target=obj)
         return str(mylv.vg) + ":LV:"+str(mylv)
@@ -237,14 +181,6 @@ class TargetAdmin(StatsAdmin):
         if not change:
             obj.owner = request.user
         obj.save()
-
-#    def get_actions(self, request):
-    #Disable delete
-#        actions = super(TargetAdmin, self).get_actions(request)
-#        del actions['delete_selected']
-#        return actions
-
-
 
 class LVAdmin(StatsAdmin):
     readonly_fields = ('target','vg','lvname','lvsize','lvuuid','created_at','isencrypted')
@@ -305,8 +241,6 @@ class AAGroupAdmin(StatsAdmin):
     def storage_host (self,obj):
         return obj.target.targethost
 
-
-
 admin.site.register(AAGroup,AAGroupAdmin)
 
 class ClumpGroupAdmin(StatsAdmin):
@@ -321,8 +255,6 @@ class ClumpGroupAdmin(StatsAdmin):
 
     def storage_host (self,obj):
         return obj.target.targethost
-
-
 
 admin.site.register(ClumpGroup,ClumpGroupAdmin)
 
@@ -370,63 +302,10 @@ class StorageHostAdmin(admin.ModelAdmin):
     list_display=['dnsname','ipaddress','storageip1','storageip2','created_at','updated_at','enabled']
 admin.site.register(StorageHost, StorageHostAdmin)
 
-
-
 #Code for bringing extended user attributes to Django admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
-
 from ssdfrontend.models import Profile
-
-
-class ProfileForm(forms.ModelForm):
-    class Meta:
-        model = Profile
-    
-    def clean_max_alloc_sizeGB(self):
-        logger = getLogger(__name__)
-        oldalloc = 0
-        usedsize = 0
-        #Test 1:  if the user has already used more than the new quota
-        try:
-            requestedGB = self.cleaned_data['max_alloc_sizeGB']
-            usedsize = Target.objects.filter(owner=self.cleaned_data['user']).aggregate(used_size=db.models.Sum('sizeinGB'))['used_size']
-            if usedsize == None:
-                usedsize = 0
-            if (usedsize > requestedGB):
-                raise forms.ValidationError("Sorry, user targets already using %d GB > new requested quota %d GB, perhaps the user should delete some iSCSI targets before asking for a lower quota." %(usedsize,requestedGB))
-        except:
-            logger.error(format_exc())
-            raise forms.ValidationError("Sorry, user targets already using %d GB > new requested quota %d GB, perhaps the user should delete some iSCSI targets before asking for a lower quota." %(usedsize,requestedGB))
-            logger.error("Sorry, user targets already using %d GB > new requested quota %d GB, perhaps the user should delete some iSCSI targets before asking for a lower quota." %(usedsize,requestedGB))
-
-        #Test 2: if the cluster has that much available storage
-        try:
-            requestedGB = self.cleaned_data['max_alloc_sizeGB']
-            if requestedGB == 0:
-                return requestedGB
-            totalGB = VG.objects.all().aggregate(totalGB=db.models.Sum('totalGB'))['totalGB']
-            if totalGB == None:
-                totalGB = 0
-            allocGB = Profile.objects.all().aggregate(CAGB=db.models.Sum('max_alloc_sizeGB'))['CAGB']
-            if allocGB == None:
-                allocGB = 0
-            thisuser = self.cleaned_data['user']
-            try:
-                oldalloc = Profile.objects.get(user=thisuser).max_alloc_sizeGB
-            except:
-                oldalloc = None
-            if oldalloc == None:
-                oldalloc = 0
-            #logger.info("totalGB = %d, Allocated to all users = %d, This users old allocation = %d" %(totalGB,allocGB,oldalloc)) 
-            if (totalGB < allocGB+requestedGB-oldalloc) and (requestedGB > oldalloc):
-                raise forms.ValidationError("Sorry, cluster capacity exceeded; maximum possible is %d GB" %(totalGB-allocGB+oldalloc,))
-        except:
-            logger.error(format_exc())
-            logger.error("Sorry, cluster capacity exceeded; maximum possible is %d GB" %(totalGB-allocGB+oldalloc,))
-            raise forms.ValidationError("Sorry, cluster capacity exceeded; maximum possible is %d GB" %(totalGB-allocGB+oldalloc,))
-        return requestedGB
-
 
 class ProfileInline(admin.StackedInline):
     form = ProfileForm
@@ -441,7 +320,6 @@ class UserChangeList(ChangeList):
         super(UserChangeList,self).get_results(*args, **kwargs)
         q = self.result_list.aggregate(total_alloc_GB=db.models.Sum('profile__max_alloc_sizeGB'))
         self.total_alloc_GB = q['total_alloc_GB']
-
 
 admin.site.unregister(User)
 class UserAdmin(UserAdmin):

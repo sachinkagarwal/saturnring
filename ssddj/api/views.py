@@ -63,9 +63,17 @@ def ValuesQuerySetToDict(vqs):
 
 class ReturnUserStats(APIView):
     """
-    CBV for returning the user's assigned quota and the currently used quota in GB"
-    /api/userquota
-    Requires authenticated user
+    /api/userstats/
+
+    Returns the user's assigned quota and the currently used quota in GB.
+
+    Requires authenticated user.
+    
+    Example usage:
+    
+    curl -X GET http://saturnring.example.com/api/userstats/ --user "userid:password"
+
+    {"total": 4.0, "used": 1.0, "error": 0}
     """
     def __getstate__(self):
         d = dict(self.__dict__)
@@ -78,18 +86,28 @@ class ReturnUserStats(APIView):
     permission_classes = (IsAuthenticated,)
     def get(self, request):
         logger = getLogger(__name__)
-        rtnVal= UserStats(request.user)
+        (rtnVal,output)= UserStats(request.user)
         if rtnVal == -1:
             logger.warn("Error checking quota")
-            return Response({'error':1}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error':1, 'errorstring':output}, status=status.HTTP_400_BAD_REQUEST)
         else:
-            (total,used) = rtnVal;
+            (total,used) = output;
             return Response({'error':0,'total':total,'used':used})
 
 class ReturnTargetPortal(APIView):
     """
-    CBV for returning the target's portal IP address"
-    /api/targetportal
+    /api/targetportal/
+
+    Return the specified target's portal IP address (this is the storageip_1 field)
+
+    Requires a valid iSCSI target FQDN on the Saturnring server.
+
+    Example usage:
+
+    curl  -X GET http://saturnring.example.com/api/targetportal/  --data "iqntar=<target_IQN>"
+
+    {"portal": "192.168.50.51", "error": 0}
+
     """
     def __getstate__(self):
         d = dict(self.__dict__)
@@ -100,19 +118,31 @@ class ReturnTargetPortal(APIView):
         self.__dict__.update(d)
     def get(self, request):
         logger = getLogger(__name__)
-        rtnVal= TargetPortal(request.DATA)
+        (rtnVal,outstr) = TargetPortal(request.DATA)
         if rtnVal == -1:
             logger.warn("Error returning portal IP")
-            return Response({'error':1, 'error_string':"Error returnring portal IP"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error':1, 'error_string':outstr }, status=status.HTTP_400_BAD_REQUEST)
         else:
-            return Response({'error':0,'portal':rtnVal})
+            return Response({'error':0,'portal':outstr})
 
 class ChangeInitiator(APIView):
     """
-    CBV for changing the initiator of a target in SCST. Returns error if target has an active session
-    /api/changeinitiator
+    NOTE: disabled in the urls.py as of 10.19.2015. 
+    /api/changeinitiator/
+
+    Change the initiator (clientiqn or iqnini) of a target in SCST. Returns error if target has an active session
     target
-    newinitiatorname
+
+    Requires a valid current target name "iqntar" and new initiatorname "newini" of the form "iqn.*.ini"
+
+    Example usage:
+
+    curl -X GET http://saturnring.example.com/api/changeinitiator/ 
+    
+    --data "newini=iqn.unique_string_initiator.ini"
+
+    --data "iqntar=iqn.existing_target.ini"
+
     """
     def __getstate__(self):
         d = dict(self.__dict__)
@@ -125,17 +155,24 @@ class ChangeInitiator(APIView):
     permission_classes = (IsAuthenticated,)
     def get(self, request):
         logger = getLogger(__name__)
-        rtnVal = ChangeInitiatorHelper(request.DATA,request.user)
+        (rtnVal,errorstring) = ChangeInitiatorHelper(request.DATA,request.user)
         if rtnVal == -1:
             logger.error("Could not change initiator name.")
-            return Response({'error':1, 'error_string':"Error reassigning initiator in request: " + str(request.DATA)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error':1, 'error_string':"Error reassigning initiator: " + errorstring}, status=status.HTTP_400_BAD_REQUEST)
         else:
             return Response({'error':0})
 
 
 class ChangeTarget(APIView):
     """ 
-    CBV for changing the Target name. The process of changing the target name is as follows:
+    /api/changetarget/
+
+
+
+    Changing the Target name.This means a new initiatorname and new service name are supplied, and 
+    saturnring creates a new target name and completes all backend changes (SaturnringDB, SCST configuration)
+    
+    The process of changing the target name is as follows:
     1. Verify that the "old target" actually exists
     2. Verify change pin is correct.
     3. Use the new service name and new initiator name to create the new target name
@@ -166,8 +203,6 @@ class ChangeTarget(APIView):
                 return Response({'error':0,'iqntar':rtnString,'targethost__storageip1':storeip1})
         except:
             logger.error(format_exc)
-
-
 
 
 class ReturnStats(APIView):
@@ -213,7 +248,8 @@ class UpdateStateData(APIView):
         self.__dict__.update(d)
 
     def get(self, request):
-        timeoutValue = 30
+        timeoutValue = 30 #Maximum runtime for a job
+        ttlValue = 60 #Maximum time a job can be enqueued
         logger = getLogger(__name__)
         config = ConfigReader()
         numqueues = config.get('saturnring','numqueues')
@@ -223,7 +259,7 @@ class UpdateStateData(APIView):
         for eachhost in allhosts:
             queuename = 'queue'+str(hash(eachhost)%int(numqueues))
             queue = get_queue(queuename)
-            jobs[str(eachhost)]=queue.enqueue(UpdateOneState,args=(eachhost.dnsname,), timeout=timeoutValue)
+            jobs[str(eachhost)]=queue.enqueue(UpdateOneState,args=(eachhost.dnsname,), timeout=timeoutValue,ttl=ttlValue)
         for eachhost in allhosts:
             while( jobs[str(eachhost)].is_queued or jobs[str(eachhost)].is_started):
                 sleep(0.5)
@@ -301,7 +337,7 @@ class Provision(APIView):
                 numqueues = config.get('saturnring','numqueues')
                 queuename = 'queue'+str(hash(tar[0].targethost)%int(numqueues))
                 queue = get_queue(queuename)
-                job = queue.enqueue(UpdateOneState,args=(tar[0].targethost.dnsname,), timeout=45)
+                job = queue.enqueue(UpdateOneState,args=(tar[0].targethost.dnsname,), timeout=45,ttl=60)
                 while not ( (job.result == 0) or (job.result == 1) or job.is_failed):
                     sleep(0.5)
                 if (job.result == 1) or (job.is_failed):
@@ -310,7 +346,7 @@ class Provision(APIView):
                     logger.error("Error while provisioning/returning target %s" %(tar[0].iqntar,))
                     return Response(rtnDict, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-                data = tar.values('iqnini','iqntar','sizeinGB','targethost','storageip1','storageip2','aagroup__name','clumpgroup__name','sessionup','isencrypted')
+                data = tar.values('iqnini','iqntar','sizeinGB','targethost','storageip1','storageip2','aagroup__name','clumpgroup__name','sessionup','isencrypted','pin')
                 rtnDict = ValuesQuerySetToDict(data)[0]
                 rtnDict['targethost__storageip1']=rtnDict.pop('storageip1') #in order to not change the user interface
                 if rtnDict['targethost__storageip1']=='127.0.0.1':
