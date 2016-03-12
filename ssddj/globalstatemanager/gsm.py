@@ -53,6 +53,7 @@ class PollServer():
         """
         try:
             self.serverDNS = str(serverDNS)
+            self.hostobject = StorageHost.objects.get(dnsname=self.serverDNS)
             BASE_DIR = dirname(dirname(__file__))
             config = ConfigReader()
             self.userName = config.get('saturnnode','user')
@@ -226,10 +227,14 @@ class PollServer():
         if lvdict == -1:
             logger.error ("Could not run GetLVs (perhaps there are no LVs in this VG yet?)")
             return -1
-        lvs = LV.objects.filter(vg=vgObject)
+        lvs = set(LV.objects.filter(vg=vgObject))
+        lvDict = {}
+        for eachlv in lvs:
+            lvDict[eachlv.lvname] = eachlv
+
         for lvName,lvinfo in lvdict.iteritems():
-            if len(lvs.filter(lvname=lvName)):
-                preexistLV=lvs.filter(lvname=lvName)[0]
+            if lvName in lvDict:
+                preexistLV=lvDict[lvName]
             	preexistLV.lvsize=lvinfo['LV Size']
             	preexistLV.save(update_fields=['lvsize'])
             else:
@@ -385,11 +390,14 @@ class PollServer():
         if exStr == -1:
             return -1
         try:
+            targetDic = {}
+            hostTargets = set(Target.objects.filter(targethost=self.hostobject))
+            for eachTarget in hostTargets:
+                targetDic[eachTarget.iqntar] = eachTarget
             for eachLine in exStr:
                 iqntar = eachLine.split()[0]
-                tar = Target.objects.filter(iqntar=iqntar)
-                if len(tar)==1:
-                    tar = tar[0]
+                if iqntar in targetDic:
+                    tar = targetDic[iqntar]
                     if "no session" in eachLine:
                         tar.sessionup=False
                         tar.rkbpm = 0
@@ -470,7 +478,7 @@ class PollServer():
         if ipadds == -1:
             return -1
         rtnVal = 0
-        sh = StorageHost.objects.get(dnsname=self.serverDNS)
+        sh = self.hostobject
         superuser=User.objects.filter(is_superuser=True).order_by('username')[0]
         for addr in ipadds:
             try:

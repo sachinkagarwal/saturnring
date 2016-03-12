@@ -1,20 +1,6 @@
-#Copyright 2014 Blackberry Limited
-#
-#Licensed under the Apache License, Version 2.0 (the "License");
-#you may not use this file except in compliance with the License.
-#You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-#Unless required by applicable law or agreed to in writing, software
-#distributed under the License is distributed on an "AS IS" BASIS,
-#WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#See the License for the specific language governing permissions and
-#limitations under the License.
-
-#balancereport.py
 import os
 import sys
+from traceback import format_exc
 sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ssddj.settings")
 from django.conf import settings
@@ -37,16 +23,19 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-username = sys.argv[1]
-owner = User.objects.get(username=username);
-allTargets = Target.objects.filter(owner=owner)
+#username = sys.argv[1]
+#owner = User.objects.get(username=username);
+allTargets = Target.objects.all()
 vgdic = {}
-vginfodic ={}
-print bcolors.BOLD + "\n\nUsers' target information" + bcolors.ENDC
+aagdic = {}
+shostdic = {}
+#print bcolors.BOLD + "\n\nUsers' target information" + bcolors.ENDC
 for aTarget in allTargets:
+  try:
     lv = LV.objects.get(target=aTarget)
     vg = lv.vg
     aag = AAGroup.objects.get(target=aTarget)
+    owner = aTarget.owner
     print owner.username,
     print bcolors.OKGREEN + aTarget.iqntar + bcolors.ENDC,
     print aTarget.iqnini,
@@ -55,26 +44,47 @@ for aTarget in allTargets:
     print vg.vguuid,
     print lv.lvname,
     print str(aag)
+    aag = str(aag)
     if str(vg) not in vgdic:
         vgdic[str(vg)] = []
-	vginfodic[str(vg)] = (vg.totalGB,vg.maxavlGB)
-    if (sys.argv[2] in str(aTarget)) or (sys.argv[2] in aTarget.iqnini): 
-        vgdic[str(vg)].append((str(aTarget),aTarget.iqnini,lv.lvsize))
+    vgdic[str(vg)].append((str(aTarget),aTarget.iqnini,owner.username))
+    
+    if aag not in aagdic:
+        aagdic[aag] = []
+    aagdic[aag].append((str(aTarget),aTarget.iqnini,owner.username))
+    
+    shost = aTarget.targethost.dnsname
+    if shost not in shostdic:
+        shostdic[shost] = {}
+    if aag not in shostdic[shost]:
+        shostdic[shost][aag] = []
+    shostdic[shost][aag].append((str(aTarget),aTarget.iqnini,owner.username))
+  except:
+    print "Error processing %s" % str(aTarget)
+    print format_exc()
 
 
 print bcolors.BOLD + "\n\nUsers' targets per VG" +bcolors.ENDC
 for vg in sorted(vgdic.keys()):
-    print bcolors.OKGREEN + vg + bcolors.ENDC + str(vginfodic[vg])
-    count = 1
+    print bcolors.OKGREEN + vg + bcolors.ENDC
     for atarget in vgdic[vg]:
-	(targetname, initiatorname, size) = atarget
-        print str(count) + ")",
+	(targetname, initiatorname,username) = atarget
+        print bcolors.OKGREEN + username + bcolors.ENDC,
         print bcolors.OKBLUE + targetname + bcolors.ENDC,
-        print initiatorname,
-        print size
-        count = count+1
+        print initiatorname
 
- 
+print bcolors.BOLD + "\n\nAAG targets per Saturn Server" +bcolors.ENDC
+print "Anti_affinity_group Username Target_IQN Initiator_client_IQN Overlap"
+for shost in sorted(shostdic.keys()):
+    for aag in shostdic[shost]:
+        overlapsize = len(shostdic[shost][aag])
+        if overlapsize > 1:
+            for eachTarget in shostdic[shost][aag]:
+                (targetname, initiatorname,username) = eachTarget
+                print bcolors.OKBLUE + aag + bcolors.ENDC,
+                print bcolors.FAIL + username + bcolors.ENDC,
+                print bcolors.WARNING + targetname + bcolors.ENDC,
+                print bcolors.FAIL + initiatorname +" "+ str(overlapsize) + bcolors.ENDC
 
 
 

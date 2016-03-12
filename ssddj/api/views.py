@@ -40,7 +40,7 @@ from time import strftime
 from traceback import format_exc
 from utils.reportmaker import StatMaker
 from mimetypes import guess_type
-from django.core.servers.basehttp import FileWrapper
+#from django.core.servers.basehttp import FileWrapper
 from django.http import HttpResponse
 from ssdfrontend.models import Target
 from ssdfrontend.models import StorageHost
@@ -118,7 +118,7 @@ class ReturnTargetPortal(APIView):
         self.__dict__.update(d)
     def get(self, request):
         logger = getLogger(__name__)
-        (rtnVal,outstr) = TargetPortal(request.DATA)
+        (rtnVal,outstr) = TargetPortal(request.data)
         if rtnVal == -1:
             logger.warn("Error returning portal IP")
             return Response({'error':1, 'error_string':outstr }, status=status.HTTP_400_BAD_REQUEST)
@@ -155,7 +155,7 @@ class ChangeInitiator(APIView):
     permission_classes = (IsAuthenticated,)
     def get(self, request):
         logger = getLogger(__name__)
-        (rtnVal,errorstring) = ChangeInitiatorHelper(request.DATA,request.user)
+        (rtnVal,errorstring) = ChangeInitiatorHelper(request.data,request.user)
         if rtnVal == -1:
             logger.error("Could not change initiator name.")
             return Response({'error':1, 'error_string':"Error reassigning initiator: " + errorstring}, status=status.HTTP_400_BAD_REQUEST)
@@ -194,7 +194,7 @@ class ChangeTarget(APIView):
     def get(self, request):
         try:
             logger = getLogger(__name__)
-            (rtnVal,rtnString) = ChangeTargetHelper(request.DATA,request.user)
+            (rtnVal,rtnString) = ChangeTargetHelper(request.data,request.user)
             if rtnVal < 0:
                 logger.error("Could not change target name.")
                 return Response({'error':1, 'error_string':"Error reassigning target name, details: %s" %(rtnString,)}, status=status.HTTP_400_BAD_REQUEST)
@@ -222,7 +222,7 @@ class ReturnStats(APIView):
             config = ConfigReader()
             thefile = join(config.get('saturnring','iscsiconfigdir'),config.get('saturnring','clustername')+'.xls')
             filename = basename(thefile)
-            response = HttpResponse(FileWrapper(open(thefile)),content_type=guess_type(thefile)[0])
+            response = HttpResponse(open(thefile),content_type=guess_type(thefile)[0]) #removed filewrapper around thefile
             response['Content-Length'] = getsize(thefile)
             response['Content-Disposition'] = "attachment; filename=%s" % filename
             return response
@@ -230,7 +230,6 @@ class ReturnStats(APIView):
             var = format_exc()
             logger.warn("Stat error: %s" % (var,))
             return Response(strftime('%c')+": Stat creation error: contact administrator")
-
 
 class UpdateStateData(APIView):
     """
@@ -286,8 +285,8 @@ class Delete(APIView):
     permission_classes = (IsAuthenticated,)
     def get(self, request ):
         logger = getLogger(__name__)
-        logger.info("Raw request data is "+str(request.DATA))
-        (flag,statusStr) = DeleteTarget(request.DATA,request.user)
+        logger.info("Raw request data is "+str(request.data))
+        (flag,statusStr) = DeleteTarget(request.data,request.user)
         logger.info("Deletion via API result" + str(statusStr))
         if flag!=0:
             rtnDict={}
@@ -317,11 +316,11 @@ class Provision(APIView):
     permission_classes = (IsAuthenticated,)
     def get(self, request ):
         logger = getLogger(__name__)
-        logger.info("Raw request data is "+str(request.DATA))
-        serializer = ProvisionerSerializer(data=request.DATA)
+        logger.info("Raw request data is "+str(request.data))
+        serializer = ProvisionerSerializer(data=request.data)
         rtnDict = {}
         if serializer.is_valid():
-            (flag,statusStr) = MakeTarget(request.DATA,request.user)
+            (flag,statusStr) = MakeTarget(request.data,request.user)
             if flag==-1:
                 rtnDict = {}
                 rtnDict['error']=1
@@ -331,8 +330,9 @@ class Provision(APIView):
                 tar = Target.objects.filter(iqntar=statusStr)
                 if (tar[0].owner != request.user):
                     return Response({'error':1,'detail':'Not authorized'},status=status.HTTP_401_UNAUTHORIZED)
-
-                #Check and update state on the Saturn node
+                
+                #if (flag != 1): #Dont run this code if this is a pre-existing LUN
+                    #Check and update state on the Saturn node
                 config = ConfigReader()
                 numqueues = config.get('saturnring','numqueues')
                 queuename = 'queue'+str(hash(tar[0].targethost)%int(numqueues))
@@ -362,7 +362,7 @@ class Provision(APIView):
                 rtnDict['detail'] = 'Problem provisioning, contact admin'
                 return Response(rtnDict, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
-            logger.warn("Invalid provisioner serializer data: "+str(request.DATA))
+            logger.warn("Invalid provisioner serializer data: "+str(request.data))
             rtnDict={}
             rtnDict['error']=1
             rtnDict['detail']=serializer.errors
@@ -383,8 +383,8 @@ class VGScanner(APIView):
         self.__dict__.update(d)
     def get(self, request):
         logger = getLogger(__name__)
-        logger.info("VG scan request received: %s " %(request.DATA,))
-        saturnserver=request.DATA[u'saturnserver']
+        logger.info("VG scan request received: %s " %(request.data,))
+        saturnserver=request.data[u'saturnserver']
         if (StorageHost.objects.filter(Q(dnsname__contains=saturnserver) | Q(ipaddress__contains=saturnserver))):
             p = PollServer(saturnserver)
             savedvguuidStr = p.GetVG()
@@ -397,6 +397,6 @@ class VGScanner(APIView):
             logger.info("RETURNING THIS "+str(readVG))
             #return savedvguuidStr
         else:
-            logger.warn("Unknown saturn server "+str(request.DATA))
-            return Response("Unregistered or uknown Saturn server "+str(request.DATA), status=status.HTTP_400_BAD_REQUEST)
+            logger.warn("Unknown saturn server "+str(request.data))
+            return Response("Unregistered or uknown Saturn server "+str(request.data), status=status.HTTP_400_BAD_REQUEST)
 

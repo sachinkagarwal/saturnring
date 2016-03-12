@@ -94,7 +94,7 @@ class TargetHistoryAdmin(StatsAdmin):
     def has_delete_permission(self, request, obj=None): # note the obj=None
                 return False
     
-    def queryset(self, request):
+    def get_queryset(self, request):
         if request.user.is_superuser:
             return TargetHistory.objects.all()
         return TargetHistory.objects.filter(owner=request.user)
@@ -172,7 +172,7 @@ class TargetAdmin(StatsAdmin):
     def iscsi_storeip2(self, obj):
         return obj.storageip2
 
-    def queryset(self, request):
+    def get_queryset(self, request):
         if request.user.is_superuser:
             return Target.objects.all()
         return Target.objects.filter(owner=request.user)
@@ -203,7 +203,7 @@ class LVAdmin(StatsAdmin):
             return False
         return True
 
-    def queryset(self, request):
+    def get_queryset(self, request):
         if request.user.is_superuser:
             return LV.objects.all()
         return LV.objects.filter(target__owner=request.user)
@@ -274,6 +274,7 @@ admin.site.register(TargetNameMap, TargetNameMapAdmin)
 class StorageHostForm(forms.ModelForm):
     class Meta:
         model = StorageHost
+        fields = '__all__'
 	
     def clean_dnsname(self):
         logger = getLogger(__name__)
@@ -322,10 +323,12 @@ class UserChangeList(ChangeList):
         self.total_alloc_GB = q['total_alloc_GB']
 
 admin.site.unregister(User)
+from django.utils import timezone
 class UserAdmin(UserAdmin):
     def save_model(self, request, obj, form, change):
         if request.user.is_superuser:
             obj.is_staff = True
+#            obj.last_login = timezone.now()
             obj.save()
 
     inlines = (ProfileInline,)

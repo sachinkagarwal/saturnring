@@ -14,13 +14,18 @@
 
 #migratetarget.py
 
-
 from traceback import format_exc
 import sys, os, hashlib
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ssddj.settings")
 from django.conf import settings
+import django
+django.setup()
+try:
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+except ImportError:
+    from django.contrib.auth.models import User    
 
-from django.contrib.auth.models import User
 from operator import itemgetter
 from ssdfrontend.models import Target,LV,VG,StorageHost,AAGroup, Interface, ClumpGroup, IPRange
 from globalstatemanager.gsm import PollServer
@@ -193,7 +198,7 @@ try:
     if (sys.argv[2] == "auto"):
         to_vg = AutoSuggest(from_tar,from_vg,aag)
     else:
-        to_vg = VG.objects.select_related('vg').get(vguuid=sys.argv[2])
+        to_vg = VG.objects.get(vguuid=sys.argv[2])
 
     linuxusername = sys.argv[3]
     destserver = PollServer(to_vg.vghost.dnsname)

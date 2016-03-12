@@ -137,8 +137,11 @@ os.environ['DJANGO_SETTINGS_MODULE'] = 'ssddj.settings'
 activate_env=os.path.expanduser("$INSTALLLOCATION/saturnenv/bin/activate_this.py")
 execfile(activate_env, dict(__file__=activate_env))
 
-import django.core.handlers.wsgi
-application = django.core.handlers.wsgi.WSGIHandler()
+#import django.core.handlers.wsgi
+#application = django.core.handlers.wsgi.WSGIHandler()
+#Commented out above 2 lines, and added these for Django19
+from django.core.wsgi import get_wsgi_application
+application = get_wsgi_application()
 
 EOF
 python manage.py collectstatic --noinput

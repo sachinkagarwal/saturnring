@@ -52,6 +52,7 @@ DBUSER = config.get('database','dbuser')
 DBTYPE = config.get('database','dbtype')
 DBPASSWORD = config.get('database','dbpassword')
 DBDIR = config.get('database','dbdir')
+DBMAXAGE = config.get('database','conn_maxage') #applicable to Postgres
 
 if (config.get('activedirectory','enabled')=='1'):
     print "Configuring AD"

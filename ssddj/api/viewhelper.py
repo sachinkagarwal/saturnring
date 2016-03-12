@@ -48,7 +48,7 @@ def LVAllocSumVG(vg):
     '''
     Simple function to return sum of LV sizes in a specified VG
     '''
-    lvs = LV.objects.filter(vg=vg)
+    lvs = list(LV.objects.filter(vg=vg))
     lvalloc=0.0
     for eachlv in lvs:
        lvalloc=lvalloc+eachlv.lvsize
@@ -72,18 +72,17 @@ def VGFilter(storageSize, aagroup,owner,clumpgroup="noclump",subnet="public",sto
             vgchoices = VG.objects.filter(in_error=False,is_locked=False,vghost__in=storagehosts,enabled=True,is_thin=provisiontype).order_by('-maxavlGB')#Ordering for randomaag going to least used VG
         else:
             vgchoices = VG.objects.filter(in_error=False,is_locked=False,vghost__in=storagehosts,enabled=True).order_by('-maxavlGB')#Ordering for randomaag going to least used VG
-        logger.info('vg-choices are: '+str(vgchoices))
     else:
         if provisiontype != 'any':
             vgchoices = VG.objects.filter(in_error=False,is_locked=False,vghost__in=storagehosts,enabled=True,storemedia=storemedia,is_thin=provisiontype).order_by('-maxavlGB')#randomaag goes to least used VG
         else:
             vgchoices = VG.objects.filter(in_error=False,is_locked=False,vghost__in=storagehosts,enabled=True,storemedia=storemedia).order_by('-maxavlGB')#randomaag goes to least used VG
-
-        logger.info('vg-choices are: '+str(vgchoices))
+    vgchoicelist = list(vgchoices.select_related('vghost'))
+#    logger.info('vg-choices are: '+str(vgchoices))
     if len(vgchoices) > 0:
         numDel=0
         chosenVG = -1
-        for eachvg in vgchoices:
+        for eachvg in vgchoicelist:
             if subnet != "public":
                 try:
                     eachvg.vghost.iprange_set.get(iprange=subnet,owner=owner)
@@ -198,7 +197,7 @@ def MakeTarget(requestDic,owner):
                 break
             else:
                 sleep(0.2)
-    except: #This is to create the lock the first time
+    except: #This is to create the lock the very first time
         globallock = Lock(lockname='allvglock',locked=True)
         globallock.save()
 
@@ -247,7 +246,7 @@ def UserStats(user):
     '''
     logger = getLogger(__name__)
     try:
-        user = User.objects.get(username=user)
+        user = User.objects.select_related('profile').get(username=user)
         totalAlloc = Target.objects.filter(owner=user).aggregate(Sum('sizeinGB'))
         if not totalAlloc['sizeinGB__sum']:
             totalAlloc['sizeinGB__sum'] = 0.0

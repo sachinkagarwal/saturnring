@@ -51,7 +51,7 @@ def CheckUserQuotas(storageSize,owner):
                     logging.handlers.DEFAULT_TCP_LOGGING_PORT)
     logger.addHandler(socketHandler)
 
-    user = User.objects.get(username=owner)
+    user = User.objects.select_related('profile').get(username=owner)
     if (storageSize > user.profile.max_target_sizeGB):
         rtnStr = "User not authorized to create targets of %dGb, maximum size can be %dGb" %(storageSize,user.profile.max_target_sizeGB)
         return(-1,rtnStr)

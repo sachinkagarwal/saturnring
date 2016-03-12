@@ -95,6 +95,7 @@ def download_selected_targets_to_CSV(StatsAdmin,request,queryset):
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = Profile
+        fields = '__all__'
     
     def clean_max_alloc_sizeGB(self):
         logger = getLogger(__name__)
