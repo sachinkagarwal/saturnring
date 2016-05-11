@@ -117,7 +117,6 @@ INSTALLED_APPS = (
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'ssdfrontend',
-    'south',
     'rest_framework',
     'api',
     'globalstatemanager',
