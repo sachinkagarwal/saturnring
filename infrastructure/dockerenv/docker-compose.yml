@@ -8,8 +8,12 @@ services:
       - 6379
   db:
     image: postgres
+    ports:
+      - "5432:5432"
     expose:
       - 5432
+    volumes:
+      - ./appdata/db/data:/var/lib/postgresql/data
   web:
     links:
       - db
@@ -21,6 +25,8 @@ services:
       - ./appdata:/data
     ports:
       - "8000:8000"
+    expose:
+      - 8000
     depends_on:
       - db
       - redis
