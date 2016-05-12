@@ -162,9 +162,10 @@ else:
 
 
 numqueues = config.get('saturnring','numqueues')
+redisserver = config.get('saturnring','redisserver')
 RQ_QUEUES = {
     'default': {
-        'HOST': 'localhost',
+        'HOST': redisserver,
         'PORT': 6379,
         'DB': 0,
     },
@@ -172,7 +173,7 @@ RQ_QUEUES = {
 
 for ii in range(0,int(numqueues)):
     RQ_QUEUES['queue'+str(ii)]={
-            'HOST': '127.0.0.1',
+            'HOST': redisserver,
             'PORT' : 6379,
             'DB': 0,
             'DEFAULT_TIMEOUT': 100,
